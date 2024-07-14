@@ -6,8 +6,8 @@ from dataclasses import dataclass
 class Variables:
     PDFS_PATH:str = str(Path(os.path.abspath(__file__)).parent / 'data' / 'pdfs')
     INSTRUCTION_DATASET_JSON_PATH:str = str(Path(os.path.abspath(__file__)).parent / 'data' / 'arvix_instruction_dataset.json')
-    ORIGINAL_MODEL_PATH:str = str(Path(os.path.abspath(__file__)).parent / 'models' / 'original_llama3_model')
-    FINE_TUNED_MODEL_PATH:str = str(Path(os.path.abspath(__file__)).parent / 'models')
+    BASE_MODEL_PATH:str = str(Path(os.path.abspath(__file__)).parent / 'models' / 'original_llama3_model')
+    FINE_TUNED_MODEL_PATH:str = str(Path(os.path.abspath(__file__)).parent / 'models' / 'fine_tuned_model')
     INSTRUCTION_FOR_CREATING_TRIPLES = '''You are a highly intelligent and knowledgeable assistant tasked with generating triples of instruction, input, and output from academic papers related to Large Language Models (LLMs). Each triple should consist of:
 
     Instruction: A clear and concise task description that can be performed by an LLM.
