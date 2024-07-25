@@ -4,6 +4,10 @@ This is an end-to-end project including data ingestion, creation of instruction/
 
 # First Step - Data Scraping
 
+Start by installing the dependencies with 
+
+`pip install -r requirements.txt`
+
 In order to find data for the fine-tuning, Arxiv was scraped for LLM papers published after the Llama 3 release date.
 
 The Selenium scraping code can be found in `llama3_8b_finetuning/arxiv_scraping/Arxiv_pdfs_download.py`. (The webdriver must be downloaded before this script execution).
@@ -64,4 +68,21 @@ The prompt for the pairs creation are on utils file, and it can also be seen bel
 Finally, the instructions are saved on `llama3_8b_finetuning/data/arvix_instruction_dataset.json`.
 
 
+# Third Step - Fine Tuning
 
+The code for this step can be found on `/llama3_8b_finetuning/model_trainer.py`
+
+
+First we load the instructions/answer pairs: 
+
+
+```python
+def load_and_split_dataset(self):
+dataset = load_dataset("json", data_files=self.data_path)
+train_test_split = dataset['train'].train_test_split(test_size=0.2)
+dataset_dict = DatasetDict({
+    'train': train_test_split['train'],
+    'test': train_test_split['test']
+})
+return dataset_dict['train'], dataset_dict['test']
+```
