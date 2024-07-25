@@ -18,9 +18,9 @@ The scraping code takes the papers on the first Arxiv page and downloads them in
 
 The code for this step can be found at `/llama3_8b_finetuning/creating_instruction_dataset.py`
 
-The text content from the downloaded papers was parsed using Langchain's `PyPDFLoader`. Then, the text was sent into the Llama 3 70B model via Grok. Grok was chosen due to its speed and small cost. Also, it must be noted that the Llama 3 user license only allows its use for training/fine tuning Llama LLMs. Therefore, we wouldn't be able to use Llama 3 for create instructions/answer pairs for other models, even open-source ones or for non-commercial use.,
+The text content from the downloaded papers was parsed using Langchain's `PyPDFLoader`. Then, the text was sent into the Llama 3 70B model via Grok. Grok was chosen due to its speed and small cost. Also, it must be noted that the Llama 3 user license only allows its use for training/fine tuning Llama LLMs. Therefore, we wouldn't be able to use Llama 3 for create instructions/answer pairs for other models, even open-source ones or for non-commercial use.
 
-The prompt for the pairs creation are on utils file, and it can also be seen below: 
+The prompt for the pairs creation are on the utils file, and it can also be seen below: 
 
 '''
 
@@ -73,16 +73,74 @@ Finally, the instructions are saved on `llama3_8b_finetuning/data/arvix_instruct
 The code for this step can be found on `/llama3_8b_finetuning/model_trainer.py`
 
 
-First we load the instructions/answer pairs: 
+First we load the instructions/answer pairs, split them into test and train dataset, and format 
+into the right format.
 
 
 ```python
-def load_and_split_dataset(self):
-dataset = load_dataset("json", data_files=self.data_path)
-train_test_split = dataset['train'].train_test_split(test_size=0.2)
-dataset_dict = DatasetDict({
-    'train': train_test_split['train'],
-    'test': train_test_split['test']
-})
-return dataset_dict['train'], dataset_dict['test']
+class DatasetHandler:
+    def __init__(self, data_path):
+        self.data_path = data_path
+
+    def load_and_split_dataset(self):
+        dataset = load_dataset("json", data_files=self.data_path)
+        train_test_split = dataset['train'].train_test_split(test_size=0.2)
+        dataset_dict = DatasetDict({
+            'train': train_test_split['train'],
+            'test': train_test_split['test']
+        })
+        return dataset_dict['train'], dataset_dict['test']
+
+    @staticmethod
+    def format_instruction(sample):
+        return f"""
+        Below is an instruction that describes a task, paired with an input that provides further context. 
+        Write a response that appropriately completes the request.
+
+        ### Instruction:
+        {sample['Instruction']}
+
+        ### Input:
+        {sample['Input']}
+
+        ### Response:
+        {sample['Output']}
+        """
+```
+
+Then, we define the class that loads the model and tokenizer from huggingface. 
+
+
+```python
+class ModelManager:
+    def __init__(self, model_id, use_flash_attention2, hf_token):
+        self.model_id = model_id
+        self.use_flash_attention2 = use_flash_attention2
+        self.hf_token = hf_token
+        self.bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16 if use_flash_attention2 else torch.float16
+        )
+    
+    def load_model_and_tokenizer(self):
+        model = AutoModelForCausalLM.from_pretrained(
+            self.model_id, 
+            quantization_config=self.bnb_config, 
+            use_cache=False, 
+            device_map="auto",
+            token=self.hf_token,  
+            attn_implementation="flash_attention_2" if self.use_flash_attention2 else "sdpa"
+        )
+        model.config.pretraining_tp = 1
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            self.model_id,
+            token=self.hf_token
+        )
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "right"
+        
+        return model, tokenizer
 ```
