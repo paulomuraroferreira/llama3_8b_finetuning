@@ -1,26 +1,26 @@
 # README
 
-This is an end-to-end project including data ingestion, creation of instruction/answer pairs, fine-tuning, and evaluation of the results.
+This is an end-to-end project including data ingestion, the creation of instruction/answer pairs, fine-tuning, and the evaluation of the results.
 
 # First Step - Data Scraping
 
-Start by installing the dependencies with 
+Start by installing the dependencies with:
 
 `pip install -r requirements.txt`
 
-In order to find data for the fine-tuning, Arxiv was scraped for LLM papers published after the Llama 3 release date.
+To find data for the fine-tuning, Arxiv was scraped for LLM papers published after the Llama 3 release date.
 
-The Selenium scraping code can be found in `llama3_8b_finetuning/arxiv_scraping/Arxiv_pdfs_download.py`. (The webdriver must be downloaded before this script execution).
+The Selenium scraping code can be found in `llama3_8b_finetuning/arxiv_scraping/Arxiv_pdfs_download.py` (the webdriver must be downloaded before this script execution).
 
 The scraping code takes the papers on the first Arxiv page and downloads them into the `llama3_8b_finetuning/data/pdfs` folder.
 
 # Second Step - Instructions/Answer Pairs Creation
 
-The code for this step can be found at `/llama3_8b_finetuning/creating_instruction_dataset.py`
+The code for this step can be found at /llama3_8b_finetuning/creating_instruction_dataset.py.
 
-The text content from the downloaded papers was parsed using Langchain's `PyPDFLoader`. Then, the text was sent into the Llama 3 70B model via Grok. Grok was chosen due to its speed and small cost. Also, it must be noted that the Llama 3 user license only allows its use for training/fine tuning Llama LLMs. Therefore, we wouldn't be able to use Llama 3 for create instructions/answer pairs for other models, even open-source ones or for non-commercial use.
+The text content from the downloaded papers was parsed using Langchain's PyPDFLoader. Then, the text was sent to the Llama 3 70B model via Grok. Grok was chosen due to its speed and low cost. It must be noted that the Llama 3 user license only allows its use for training/fine-tuning Llama LLMs. Therefore, we wouldn't be able to use Llama 3 to create instructions/answer pairs for other models, even open-source ones, or for non-commercial use.
 
-The prompt for the pairs creation are on the utils file, and it can also be seen below: 
+The prompt for the pairs creation is in the utils file and can also be seen below:
 
 '''
 
@@ -64,17 +64,15 @@ The prompt for the pairs creation are on the utils file, and it can also be seen
     Output:
 '''
 
-
-Finally, the instructions are saved on `llama3_8b_finetuning/data/arvix_instruction_dataset.json`.
-
+Finally, the instructions are saved in `llama3_8b_finetuning/data/arxiv_instruction_dataset.json`.
 
 # Third Step - Fine Tuning
 
-The code for this step can be found on `/llama3_8b_finetuning/model_trainer.py`
+The code for this step can be found in `/llama3_8b_finetuning/model_trainer.py`
 
 
-First we load the instructions/answer pairs, split them into test and train dataset, and format 
-into the right format.
+First, we load the instructions/answer pairs, split them into test and train datasets, and  
+format them into the right structure.
 
 
 ```python
@@ -108,7 +106,7 @@ class DatasetHandler:
         """
 ```
 
-Then, we define the class that loads the model and tokenizer from huggingface. 
+Then, we define the class that loads the model and tokenizer from Hugging Face. 
 
 
 ```python
@@ -145,7 +143,7 @@ class ModelManager:
         return model, tokenizer
 ```
 
-Then, we define the Trainer class and the training configuration:
+We define the `Trainer` class and the training configuration:
 
 
 ```python
@@ -191,10 +189,9 @@ class Trainer:
         return trainer
 ```
 
-Finally, the classes are called and the training starts.
+Finally, the classes are instantiated and the training begins.
 
-Note that the Llama models are gated, i.e., HuggingFace requires a token given after   
-the terms of the model are accepted and Meta approves the access (which is almost instantly). 
+Note that the Llama models are gated, meaning Hugging Face requires a token provided after the terms of use are accepted and Meta approves the access (which is almost instant).
 
 
 ```python
@@ -240,10 +237,9 @@ trained_model.save_model()
 
 # Step 4 - Evaluation
 
-In order to evaluate the fine tuning results, we employed the Recall-Oriented Understudy for Gisting Evaluation (ROUGE) Score, which 
-compares the overlap between two sets of text, in order to measure similarity between them.
+To evaluate the fine-tuning results, we employed the Recall-Oriented Understudy for Gisting Evaluation (ROUGE) Score, which compares the overlap between two sets of text to measure similarity between them.
 
-Specifically, we employ the rouge_scorer library to calculate Rouge1 and Rouge2, which measures the 1-gram and 2-gram overlap between the texts.
+Specifically, we used the rouge_scorer library to calculate ROUGE-1 and ROUGE-2, which measure the 1-gram and 2-gram overlap between the texts.
 
 
 ```python
@@ -266,10 +262,9 @@ def calculate_rouge_scores(generated_answers, ground_truth):
             'average_rougeL':average_rougeL}
 ```
 
-In order to perform this calculation, we take the instructions from the test dataset, pass them into both the base model  
-and the fine-tuned model, and compare it to the expected output from the instruction/answer dataset. 
+To perform this calculation, we take the instructions from the test dataset, pass them into both the base model and the fine-tuned model, and compare the outputs to the expected results from the instruction/answer dataset.
 
-The code for the evaluation can be found at `/llama3_8b_finetuning/model_evaluation.py`.
+The code for the evaluation can be found in /llama3_8b_finetuning/model_evaluation.py.
 
 
 ```python
@@ -321,7 +316,7 @@ class ModelHandler:
 
 # Evaluation Results
 
-The rouge scores are as follows:
+The ROUGE scores are as follows:
     
 FINE-TUNED MODEL:
 
@@ -335,12 +330,10 @@ BASE MODEL:
  'average_rouge2': 0.13402054342344535,
  'average_rougeL': 0.2115590931984475}`  
    
-     
-     
-Therefore, it can be seen that the perfomance for the fine-tuned model on the test dataset are 
-significatly superior than the base model.
+Therefore, it can be seen that the performance of the fine-tuned model on the test dataset is significantly superior to that of the base model.
 
 # Alternatives
 
-It tooks quite a while to write this code and get it working. It was good to practice, but for everyday fine-tuning related    
-jobs, just use hugging face autotrainer hosted locally (https://github.com/huggingface/autotrain-advanced): 
+It took quite a while to write this code and get it working. It was good practice, but for everyday fine-tuning-related jobs, just use Hugging Face AutoTrain hosted locally (https://github.com/huggingface/autotrain-advanced).
+
+![image.png](README_files/image.png)
