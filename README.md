@@ -144,3 +144,203 @@ class ModelManager:
         
         return model, tokenizer
 ```
+
+Then, we define the Trainer class and the training configuration:
+
+
+```python
+class Trainer:
+    def __init__(self, model, tokenizer, train_dataset, peft_config, use_flash_attention2, output_dir):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.train_dataset = train_dataset
+        self.peft_config = peft_config
+        self.args = TrainingArguments(
+            output_dir=output_dir,
+            num_train_epochs=3,
+            per_device_train_batch_size=4,
+            gradient_accumulation_steps=4,
+            gradient_checkpointing=True,
+            optim="paged_adamw_8bit",
+            logging_steps=10,
+            save_strategy="epoch",
+            learning_rate=2e-4,
+            bf16=use_flash_attention2,
+            fp16=not use_flash_attention2,
+            tf32=use_flash_attention2,
+            max_grad_norm=0.3,
+            warmup_steps=5,
+            lr_scheduler_type="linear",
+            disable_tqdm=False,
+            report_to="none"
+        )
+        self.model = get_peft_model(self.model, self.peft_config)
+
+    def train_model(self, format_instruction_func):
+        trainer = SFTTrainer(
+            model=self.model,
+            train_dataset=self.train_dataset,
+            peft_config=self.peft_config,
+            max_seq_length=2048,
+            tokenizer=self.tokenizer,
+            packing=True,
+            formatting_func=format_instruction_func, 
+            args=self.args,
+        )
+        trainer.train()
+        return trainer
+```
+
+Finally, the classes are called and the training starts.
+
+Note that the Llama models are gated, i.e., HuggingFace requires a token given after   
+the terms of the model are accepted and Meta approves the access (which is almost instantly). 
+
+
+```python
+dataset_handler = DatasetHandler(data_path=utils.Variables.INSTRUCTION_DATASET_JSON_PATH)
+train_dataset, test_dataset = dataset_handler.load_and_split_dataset()
+
+new_test_dataset = []
+for dict_ in test_dataset:
+    dict_['Output'] = ''
+    new_test_dataset.append(dict_)
+
+model_manager = ModelManager(
+    model_id="meta-llama/Meta-Llama-3-8B",
+    use_flash_attention2=True,
+    hf_token=os.environ["HF_TOKEN"]
+)
+model, tokenizer = model_manager.load_model_and_tokenizer()
+model_manager.save_model_and_tokenizer(model, tokenizer, save_directory=utils.Variables.BASE_MODEL_PATH)
+model = model_manager.prepare_for_training(model)
+
+peft_config = LoraConfig(
+    lora_alpha=16,
+    lora_dropout=0.1,
+    r=64,
+    bias="none",
+    task_type="CAUSAL_LM",
+    target_modules=[
+        "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",
+    ]
+)
+
+trainer = Trainer(
+    model=model,
+    tokenizer=tokenizer,
+    train_dataset=train_dataset,
+    peft_config=peft_config,
+    use_flash_attention2=True,
+    output_dir=utils.Variables.FINE_TUNED_MODEL_PATH
+)
+trained_model = trainer.train_model(format_instruction_func=dataset_handler.format_instruction)
+trained_model.save_model()
+```
+
+# Step 4 - Evaluation
+
+In order to evaluate the fine tuning results, we employed the Recall-Oriented Understudy for Gisting Evaluation (ROUGE) Score, which 
+compares the overlap between two sets of text, in order to measure similarity between them.
+
+Specifically, we employ the rouge_scorer library to calculate Rouge1 and Rouge2, which measures the 1-gram and 2-gram overlap between the texts.
+
+
+```python
+import pandas as pd
+from rouge_score import rouge_scorer
+
+def calculate_rouge_scores(generated_answers, ground_truth):
+    scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+    total_rouge1, total_rouge2, total_rougeL = 0, 0, 0
+    for gen, ref in zip(generated_answers, ground_truth):
+        scores = scorer.score(gen, ref)
+        total_rouge1 += scores['rouge1'].fmeasure
+        total_rouge2 += scores['rouge2'].fmeasure
+        total_rougeL += scores['rougeL'].fmeasure
+    average_rouge1 = total_rouge1 / len(generated_answers)
+    average_rouge2 = total_rouge2 / len(generated_answers)
+    average_rougeL = total_rougeL / len(generated_answers)
+    return {'average_rouge1':average_rouge1,
+            'average_rouge2':average_rouge2,
+            'average_rougeL':average_rougeL}
+```
+
+In order to perform this calculation, we take the instructions from the test dataset, pass them into both the base model  
+and the fine-tuned model, and compare it to the expected output from the instruction/answer dataset. 
+
+The code for the evaluation can be found at `/llama3_8b_finetuning/model_evaluation.py`.
+
+
+```python
+class ModelHandler:
+
+    def __init__(self):
+        pass
+
+    def loading_model(self, model_chosen='fine_tuned_model'):
+
+        if model_chosen == 'fine_tuned_model':
+            model_dir=utils.Variables.FINE_TUNED_MODEL_PATH
+            self.model = AutoPeftModelForCausalLM.from_pretrained(
+                model_dir,
+                low_cpu_mem_usage=True,
+                torch_dtype=torch.float16,
+                load_in_4bit=True,
+                )
+
+        elif model_chosen == 'base_model':
+            model_dir=utils.Variables.BASE_MODEL_PATH
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_dir,
+                low_cpu_mem_usage=True,
+                torch_dtype=torch.float16,
+                load_in_4bit=True,
+                )
+
+        self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
+
+    def ask_question(self, instruction, temperature=0.5, max_new_tokens = 1000):
+
+        prompt = format_instruction(instruction)
+
+        input_ids = self.tokenizer(prompt, return_tensors="pt", truncation=True).input_ids.cuda()
+
+        start_time = time.time()
+        with torch.inference_mode():
+            outputs = self.model.generate(input_ids=input_ids, pad_token_id=self.tokenizer.eos_token_id, max_new_tokens=max_new_tokens, do_sample=True, top_p=0.5,temperature=temperature)
+        end_time = time.time()
+
+        total_time = end_time - start_time
+        output_length = len(outputs[0])-len(input_ids[0])
+
+        self.output = self.tokenizer.batch_decode(outputs.detach().cpu().numpy(), skip_special_tokens=True)[0]
+
+        return self.output
+```
+
+# Evaluation Results
+
+The rouge scores are as follows:
+    
+FINE-TUNED MODEL:
+
+`{'average_rouge1': 0.39997816307812206,
+ 'average_rouge2': 0.2213826792342886,
+ 'average_rougeL': 0.33508922374837047}`
+
+BASE MODEL: 
+
+`{'average_rouge1': 0.2524191394349585,
+ 'average_rouge2': 0.13402054342344535,
+ 'average_rougeL': 0.2115590931984475}`  
+   
+     
+     
+Therefore, it can be seen that the perfomance for the fine-tuned model on the test dataset are 
+significatly superior than the base model.
+
+# Alternatives
+
+It tooks quite a while to write this code and get it working. It was good to practice, but for everyday fine-tuning related    
+jobs, just use hugging face autotrainer hosted locally (https://github.com/huggingface/autotrain-advanced): 
